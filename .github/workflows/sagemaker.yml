@@ -101,5 +101,6 @@ jobs:
         run: |
           python3 -m venv venv
           source venv/bin/activate
-          pip install boto3 sagemaker
+          python -m pip install --upgrade pip
+          pip install "boto3>=1.28.0" "sagemaker>=2.200.0"
           python pipeline.py
