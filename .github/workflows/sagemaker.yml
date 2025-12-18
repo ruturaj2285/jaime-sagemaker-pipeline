@@ -97,6 +97,7 @@ jobs:
       # Update SageMaker Pipeline
       # --------------------------------------------------
       - name: Update SageMaker Pipeline
+        working-directory: ${{ github.workspace }}
         run: |
           python3 -m venv venv
           source venv/bin/activate
