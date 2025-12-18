@@ -27,13 +27,12 @@ sm = boto3.client("sagemaker", region_name=REGION)
 iam = boto3.client("iam", region_name=REGION)
 
 # --------------------------------------------------
-# SageMaker execution role
+# SageMaker execution role (hard-coded)
 # --------------------------------------------------
-EXECUTION_ROLE_NAME = "sagemaker-execution-role"  # change if needed
-
-execution_role_arn = iam.get_role(
-    RoleName=EXECUTION_ROLE_NAME
-)["Role"]["Arn"]
+execution_role_arn = (
+    "arn:aws:iam::227295996532:role/"
+    "service-role/AmazonSageMaker-ExecutionRole-20251117T125044"
+)
 
 print("Using execution role:", execution_role_arn)
 
