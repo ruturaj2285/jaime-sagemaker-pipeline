@@ -1,0 +1,94 @@
+name: SageMaker ML Pipeline CI/CD
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "Sagemaker/**"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-northeast-1
+  AWS_ROLE_ARN: arn:aws:iam::<ACCOUNT_ID>:role/github-sagemaker-role
+  ECR_REGISTRY: <ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -------------------------------
+      # Detect & print changed folders/files
+      # -------------------------------
+      - name: Detect changed components and files
+        run: |
+          echo "Changed files detected:"
+          echo "-----------------------"
+
+          git diff --name-only \
+            ${{ github.event.before }} \
+            ${{ github.sha }} \
+            | grep "^Sagemaker/" \
+            | while read file; do
+                folder=$(echo "$file" | awk -F/ '{print $2}')
+                subfile=$(echo "$file" | cut -d/ -f3-)
+                echo "- Folder: $folder"
+                echo "  - $subfile"
+              done
+
+          echo ""
+          echo "Detecting unique changed components..."
+
+          CHANGED_COMPONENTS=$(git diff --name-only \
+            ${{ github.event.before }} \
+            ${{ github.sha }} \
+            | grep "^Sagemaker/" \
+            | awk -F/ '{print $2}' \
+            | sort -u)
+
+          echo "Changed components:"
+          for comp in $CHANGED_COMPONENTS; do
+            echo "  - $comp"
+          done
+
+          echo "CHANGED_COMPONENTS=$CHANGED_COMPONENTS" >> $GITHUB_ENV
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+          | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+      # -------------------------------
+      # Build & push all changed images
+      # -------------------------------
+      - name: Build & push changed images
+        run: |
+          TAG=${GITHUB_SHA::7}
+
+          for comp in $CHANGED_COMPONENTS; do
+            IMAGE_URI=$ECR_REGISTRY/$comp:$TAG
+            echo "Building image for $comp"
+            docker build -t $IMAGE_URI Sagemaker/$comp
+            docker push $IMAGE_URI
+            echo "${comp}_IMAGE=$IMAGE_URI" >> $GITHUB_ENV
+          done
+
+      # -------------------------------
+      # Update SageMaker Pipeline
+      # -------------------------------
+      - name: Update SageMaker Pipeline
+        run: |
+          pip install boto3 sagemaker
+          python Sagemaker/pipeline.py
