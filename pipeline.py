@@ -1,79 +1,102 @@
 import os
+import json
 import boto3
-import sagemaker
-from sagemaker.workflow.pipeline import Pipeline
-from sagemaker.workflow.steps import TrainingStep
-from sagemaker.estimator import Estimator
 
-# ------------------------------------------------
-# Config
-# ------------------------------------------------
 REGION = "ap-northeast-1"
 PIPELINE_NAME = "poc-image-tag-pipeline"
 
-# ------------------------------------------------
-# Find IMAGE_URI from exported *_IMAGE env vars
-# ------------------------------------------------
-image_env_vars = [
-    "mdl-data-collection_IMAGE",
-    "mdl-pre-processing_IMAGE",
-    "mdl-feature-correlation_IMAGE",
-    "mdl-feature-importance_IMAGE",
-    "mdl-training_IMAGE",
-]
-
+# --------------------------------------------------
+# Pick IMAGE_URI from exported *_IMAGE env vars
+# --------------------------------------------------
 IMAGE_URI = None
-for var in image_env_vars:
-    if os.getenv(var):
-        IMAGE_URI = os.getenv(var)
-        print(f"Using image from env var: {var}")
+for key, value in os.environ.items():
+    if key.endswith("_IMAGE"):
+        IMAGE_URI = value
+        print(f"Using image from env var: {key}")
         break
 
 if not IMAGE_URI:
-    raise RuntimeError(
-        "No image env var found. Expected one of: "
-        + ", ".join(image_env_vars)
-    )
+    raise RuntimeError("No *_IMAGE env var found")
 
 print("Final IMAGE_URI:", IMAGE_URI)
 
-# ------------------------------------------------
-# SageMaker session & role
-# ------------------------------------------------
-session = sagemaker.Session(
-    boto3.Session(region_name=REGION)
-)
+# --------------------------------------------------
+# AWS clients
+# --------------------------------------------------
+sm = boto3.client("sagemaker", region_name=REGION)
+iam = boto3.client("iam", region_name=REGION)
 
-role = sagemaker.get_execution_role(session)
+# --------------------------------------------------
+# SageMaker execution role
+# --------------------------------------------------
+EXECUTION_ROLE_NAME = "sagemaker-execution-role"  # change if needed
 
-# ------------------------------------------------
-# Dummy TrainingStep (pipeline will NOT run)
-# ------------------------------------------------
-estimator = Estimator(
-    image_uri=IMAGE_URI,
-    role=role,
-    instance_count=1,
-    instance_type="ml.m5.large",
-    sagemaker_session=session,
-)
+execution_role_arn = iam.get_role(
+    RoleName=EXECUTION_ROLE_NAME
+)["Role"]["Arn"]
 
-train_step = TrainingStep(
-    name="ImageTagVerificationStep",
-    estimator=estimator,
-)
+print("Using execution role:", execution_role_arn)
 
-# ------------------------------------------------
-# Pipeline definition
-# ------------------------------------------------
-pipeline = Pipeline(
-    name=PIPELINE_NAME,
-    steps=[train_step],
-    sagemaker_session=session,
-)
+# --------------------------------------------------
+# Minimal pipeline definition
+# --------------------------------------------------
+pipeline_definition = {
+    "Version": "2020-12-01",
+    "Steps": [
+        {
+            "Name": "ImageTagCheckStep",
+            "Type": "Training",
+            "Arguments": {
+                "AlgorithmSpecification": {
+                    "TrainingImage": IMAGE_URI,
+                    "TrainingInputMode": "File"
+                },
+                "RoleArn": execution_role_arn,
+                "OutputDataConfig": {
+                    "S3OutputPath": "s3://dummy-bucket-do-not-run/"
+                },
+                "ResourceConfig": {
+                    "InstanceType": "ml.m5.large",
+                    "InstanceCount": 1,
+                    "VolumeSizeInGB": 1
+                },
+                "StoppingCondition": {
+                    "MaxRuntimeInSeconds": 60
+                }
+            }
+        }
+    ]
+}
 
-# ------------------------------------------------
-# Create / Update pipeline ONLY
-# ------------------------------------------------
-if __name__ == "__main__":
-    pipeline.upsert(role_arn=role)
-    print(f"Pipeline '{PIPELINE_NAME}' created/updated successfully")
+# --------------------------------------------------
+# Create or Update pipeline
+# --------------------------------------------------
+created = False
+
+try:
+    resp = sm.describe_pipeline(PipelineName=PIPELINE_NAME)
+    pipeline_arn = resp["PipelineArn"]
+    print("Pipeline exists → updating")
+    sm.update_pipeline(
+        PipelineName=PIPELINE_NAME,
+        PipelineDefinition=json.dumps(pipeline_definition),
+        RoleArn=execution_role_arn
+    )
+except sm.exceptions.ResourceNotFound:
+    print("Pipeline does not exist → creating")
+    resp = sm.create_pipeline(
+        PipelineName=PIPELINE_NAME,
+        PipelineDefinition=json.dumps(pipeline_definition),
+        RoleArn=execution_role_arn
+    )
+    pipeline_arn = resp["PipelineArn"]
+    created = True
+
+# --------------------------------------------------
+# Print Pipeline ARN (FINAL OUTPUT)
+# --------------------------------------------------
+print("--------------------------------------------------")
+print("SageMaker Pipeline ARN:")
+print(pipeline_arn)
+print("Status:", "CREATED" if created else "UPDATED")
+print("--------------------------------------------------")
