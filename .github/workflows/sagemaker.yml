@@ -98,5 +98,7 @@ jobs:
       # --------------------------------------------------
       - name: Update SageMaker Pipeline
         run: |
+          python3 -m venv venv
+          source venv/bin/activate
           pip install boto3 sagemaker
           python Sagemaker/pipeline.py
