@@ -12,7 +12,7 @@ from sagemaker.workflow.pipeline_context import PipelineSession
 # Basic config
 # --------------------------------------------------
 REGION = "ap-northeast-1"
-PIPELINE_NAME = "poc-image-tag-pipeline"
+PIPELINE_NAME = "poc-image-tag-pipeline2285"
 ROLE_ARN = "arn:aws:iam::227295996532:role/sagemaker-service-role"
 DEFAULT_BUCKET = "ml-demo-bucket2286"
 
