@@ -3,7 +3,7 @@ import json
 import boto3
 
 REGION = "ap-northeast-1"
-PIPELINE_NAME = "poc-image-tag-pipeline"
+PIPELINE_NAME = "poc-image-tag-pipeline2285"
 
 # --------------------------------------------------
 # Pick IMAGE_URI from exported *_IMAGE env vars
